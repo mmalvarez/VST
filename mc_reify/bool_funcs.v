@@ -26,37 +26,42 @@ match a with
 | _ => false
 end.
 
-Lemma denote_tc_assert_b_norho_sound: forall a rho,
-  denote_tc_assert_b_norho a = true -> denote_tc_assert a rho.
+Require Import predicates_hered.
+
+Locate denote_tc_assert.
+Lemma denote_tc_assert_b_norho_sound: forall {CS : compspecs} a rho m,
+    denote_tc_assert_b_norho a = true -> app_pred (expr2.denote_tc_assert a rho) m.
 Proof.
 intros.
 induction a; simpl in *; unfold_lift; simpl; auto; try congruence.
 rewrite andb_true_iff in *. intuition.
-rewrite orb_true_iff in *. intuition.
+rewrite orb_true_iff in *. intuition. 
 Qed.
 
-Lemma denote_tc_assert_b_norho_forgive_isptr_sound: forall a e rho,
+Lemma denote_tc_assert_b_norho_forgive_isptr_sound: forall {CS:compspecs} a e rho m,
   denote_tc_assert_b_norho_forgive_isptr a e = true ->
   isptr (expr.eval_expr e rho) ->
-  denote_tc_assert a rho.
+  app_pred (expr2.denote_tc_assert a rho) m.
 Proof.
 intros.
 induction a; simpl in *; unfold_lift; simpl; auto; try congruence.
-rewrite andb_true_iff in *. intuition.
-rewrite orb_true_iff in *. intuition.
+rewrite andb_true_iff in *. intuition. 
+rewrite orb_true_iff in *. intuition. 
 apply expr_beq_spec in H; subst; auto.
 Qed.
 
-Definition tc_lvalue_b_norho Delta e :=
+
+
+Definition tc_lvalue_b_norho {CS:compspecs} Delta e :=
 denote_tc_assert_b_norho (typecheck_lvalue Delta e).
 
-Definition tc_expr_b_norho Delta e :=
+Definition tc_expr_b_norho {CS:compspecs} Delta e :=
 denote_tc_assert_b_norho (typecheck_expr Delta e).
 
-Definition tc_temp_id_b_norho id t Delta e:=
+Definition tc_temp_id_b_norho {CS:compspecs} id t Delta e:=
 denote_tc_assert_b_norho (typecheck_temp_id id t Delta e).
 
-Definition tc_lvalue_b_norho' Delta e :=
+Definition tc_lvalue_b_norho' {CS:compspecs} Delta e :=
   match e with
   | Ederef e0 t => denote_tc_assert_b_norho_forgive_isptr
                      (typecheck_lvalue Delta e) e0
@@ -64,37 +69,37 @@ Definition tc_lvalue_b_norho' Delta e :=
   end.
 
 Lemma tc_lvalue_b_sound : 
-forall e Delta rho,
+forall {CS:compspecs} e Delta rho m,
 tc_lvalue_b_norho Delta e = true ->
-tc_lvalue Delta e rho .
+app_pred (tc_lvalue Delta e rho) m.
 Proof.
 intros.
 apply denote_tc_assert_b_norho_sound; auto.
 Qed.
 
 Lemma tc_expr_b_sound : 
-forall e Delta rho,
+forall {CS:compspecs} e Delta rho m,
 tc_expr_b_norho Delta e = true ->
-tc_expr Delta e rho .
+app_pred (tc_expr Delta e rho) m.
 Proof.
 intros.
 apply denote_tc_assert_b_norho_sound; auto.
 Qed.
 
 Lemma tc_temp_id_b_sound : 
-forall id t Delta e rho,
+forall {CS:compspecs} id t Delta e rho m,
 tc_temp_id_b_norho id t Delta e= true ->
-tc_temp_id id t Delta e rho .
+app_pred (tc_temp_id id t Delta e rho) m.
 Proof.
 intros.
 apply denote_tc_assert_b_norho_sound; auto.
 Qed.
 
 Lemma tc_lvalue_b'_sound : 
-forall e Delta rho,
+forall {CS:compspecs} e Delta rho m,
 tc_lvalue_b_norho' Delta e = true ->
 isptr (expr.eval_lvalue e rho) ->
-tc_lvalue Delta e rho .
+app_pred (tc_lvalue Delta e rho) m.
 Proof.
 intros.
 destruct e eqn:HH; try solve [apply tc_lvalue_b_sound; auto].
@@ -106,7 +111,7 @@ simpl.
 auto.
 Qed.
 
-Fixpoint tc_efield_b_norho Delta efs :=
+Fixpoint tc_efield_b_norho {CS:compspecs} Delta efs :=
   match efs with
   | nil => true
   | eArraySubsc ei :: efs' =>
@@ -115,22 +120,23 @@ Fixpoint tc_efield_b_norho Delta efs :=
   | eUnionField _ :: efs' => tc_efield_b_norho Delta efs'
   end.
 
-Lemma tc_efield_b_sound: forall efs Delta rho,
-  tc_efield_b_norho Delta efs = true -> tc_efield Delta efs rho.
+Lemma tc_efield_b_sound: forall {CS:compspecs} efs Delta rho m,
+  tc_efield_b_norho Delta efs = true -> app_pred (tc_efield Delta efs rho) m.
 Proof.
   intros.
   induction efs.
-  + simpl; auto.
+  + simpl; auto. admit.
   + destruct a; simpl in H |- *.
     - apply andb_true_iff in H.
-      destruct H.
+      destruct H. admit.
+      (*
       apply tc_expr_b_sound with (rho := rho) in H.
-      tauto.
+      tauto. *)
     - tauto.
     - tauto.
-Qed.
+Admitted.
 
-Definition tc_LR_b_norho Delta e lr :=
+Definition tc_LR_b_norho {CS:compspecs} Delta e lr :=
   match lr with
   | LLLL => tc_lvalue_b_norho' Delta e
   | RRRR => tc_expr_b_norho Delta e
