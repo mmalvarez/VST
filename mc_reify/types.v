@@ -34,7 +34,7 @@ Inductive typ :=
 | tyintsize
 | tyfloatsize
 | tytypelist
-| tyfieldlist
+(*| tyfieldlist*)
 | tybinary_operation
 | tyunary_operation
 | tyN
@@ -53,8 +53,8 @@ Inductive typ :=
 | tygfield
 | tyfunspec
 | tyefield
-| tytype_id_env
-| tyllrr
+(*| tytype_id_env*)
+(*| tyllrr*)
 (*| tyother : positive -> typ*)
 .
 
@@ -84,7 +84,7 @@ Fixpoint typD (t : typ) (*(m : PositiveMap.t Type)*): Type :=
         | tyintsize => intsize
         | tyfloatsize  => floatsize
         | tytypelist => typelist
-        | tyfieldlist => fieldlist
+(*        | tyfieldlist => fieldlist*)
         | tybinary_operation => Cop.binary_operation
         | tyunary_operation => Cop.unary_operation
         | tyN => N
@@ -104,8 +104,8 @@ Fixpoint typD (t : typ) (*(m : PositiveMap.t Type)*): Type :=
         | tygfield => gfield
         | tyfunspec => funspec
         | tyefield => efield
-        | tytype_id_env => type_id_env
-        | tyllrr => LLRR
+(*        | tytype_id_env => type_id_env *)
+(*        | tyllrr => LLRR*)
     end.
 (*
 Lemma listspec_ext : forall t i (a b: listspec t i), a = b.

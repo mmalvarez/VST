@@ -11,9 +11,9 @@ Require Export compcert.cfrontend.Clight.
 Require Export veric.seplog.
 Require Export floyd.nested_field_lemmas.
 Require Export floyd.efield_lemmas.
-Require Export floyd.type_id_env.
+(*Require Export floyd.type_id_env.*)
 Require Export compcert.cfrontend.Cop.
-Require Export floyd.data_at_lemmas.
+Require Export floyd.data_at_rec_lemmas. (*formrly data_at_lemmas*)
 Require Export veric.SeparationLogic.
 Require Export floyd.field_at.
 Require Export floyd.sc_set_load_store.
