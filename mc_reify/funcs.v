@@ -8,11 +8,27 @@ Require Import ExtLib.Data.Fun.
 Require Import floyd_funcs.
 Require Import mc_reify.types.
 Require Import mc_reify.bool_funcs.
-Require Import MirrorCharge.ModularFunc.ILogicFunc.
-Require Import MirrorCharge.ModularFunc.BILogicFunc.
+(* what do we replace the mirror charge modular func with?
+   (in mirror-core, in the lib directory, theories/Lib/views)
+   Greg doesn't like the way it works
+   W-types? If we use them, then we are basically
+     trying to define a fixed point over a functor.
+     similar to metatheory a la carte
+     this works out well. might be worth exploring?
+     but it is a different solution to this problem
+     (mirror-core: define a core language, and let users add?)
+     mirror-core can provide generic functionality like beta reduction, unification,
+       and also a smaller representation. let users build operators in a second class way
+   (Q: Did metatheory a la carte solve the issue of multi type syntax - e.g. numbers and booleans)
+      goal of modular func is to get back the same interface
+ *)
+(*Require Import MirrorCharge.ModularFunc.ILogicFunc.
+Require Import MirrorCharge.ModularFunc.BILogicFunc.*)
 Require Import floyd.local2ptree.
+(* TODO - still need this? *)
 Require Import mc_reify.local2list.
 
+(* some dependencies seem to have moved to here *)
 
 Inductive const :=
 | fN : nat -> const
@@ -27,10 +43,10 @@ Inductive const :=
 | fbool : bool -> const
 | ffloat : float -> const
 | ffloat32 : float32 -> const
-| fenv : type_id_env -> const
-| fllrr : LLRR -> const
+(*| fenv : type_id_env -> const*)
+(*| fllrr : LLRR -> const*)
 .
-
+ 
 Definition typeof_const (c : const) : typ :=
  match c with
 | fN _ => tynat
@@ -45,15 +61,15 @@ Definition typeof_const (c : const) : typ :=
 | fint64 _ => tyint64
 | ffloat _ => tyfloat
 | ffloat32 _ => tyfloat32
-| fenv _ => tytype_id_env
-| fllrr _ => tyllrr
+(*| fenv _ => tytype_id_env*)
+(*| fllrr _ => tyllrr*)
 end.
 
 Definition constD (c : const)
 : typD (typeof_const c) :=
 match c with
 | fN c | fZ c | fPos c | fident c | fCtype c | fCexpr c | fComparison c | fbool c | fint c 
-| fint64 c | ffloat c | ffloat32 c | fenv c | fllrr c
+| fint64 c | ffloat c | ffloat32 c (*| fenv c | fllrr c*)
                                           => c
 end.
 
@@ -221,7 +237,7 @@ Definition typeof_eval (e : eval) :=
 | feval_id _  => (tyArr tyenviron tyval)
 end.
 
-Definition evalD  (e : eval) : typD  (typeof_eval e) :=
+Definition evalD {CS:compspecs}  (e : eval) : typD  (typeof_eval e) :=
 match e with
 | feval_id id => eval_id id
 | feval_cast t1 t2 => eval_cast t1 t2
@@ -337,51 +353,135 @@ Inductive sep :=
 | fproj_val : type -> sep
 | fupd_val : type -> sep
 (*| flseg : forall (t: type) (i : ident), listspec t i -> sep*)
-. 
+.
 
-Fixpoint reptyp (ty: type) : typ :=
-  match ty with
-  | Tvoid => tyunit
-  | Tint _ _ _ => tyval
-  | Tlong _ _ => tyval
-  | Tfloat _ _ => tyval
-  | Tpointer t1 a => tyval
-  | Tarray t1 sz a => tylist (reptyp t1)
-  | Tfunction t1 t2 _ => tyunit
-  | Tstruct id fld a => reptyp_structlist fld
-  | Tunion id fld a => reptyp_unionlist fld
-  | Tcomp_ptr id a => tyval
-  end
-with reptyp_structlist (fld: fieldlist) : typ :=
-  match fld with
-  | Fnil => tyunit
-  | Fcons id ty fld' => 
-    if is_Fnil fld' 
-      then reptyp ty
-      else typrod (reptyp ty) (reptyp_structlist fld')
-  end
-with reptyp_unionlist (fld: fieldlist) : typ :=
-  match fld with
-  | Fnil => tyunit
-  | Fcons id ty fld' => 
-    if is_Fnil fld' 
-      then reptyp ty
-      else tysum (reptyp ty) (reptyp_unionlist fld')
+(* identifiers are IDs in the
+   PTree, which is cenv_cs in compspecs *)
+Print compspecs.
+
+Print composite_env.
+Print composite.
+Print members.
+Print compspecs.
+
+Print struct_or_union.
+
+(* reptyp, updated to work with the new compcert compspecs system
+   note that termination is guaranteed by fuel, though a termination
+   proof is probably possible.
+ *)
+
+Print members.
+
+(* we could prove a lemma about reptyp_structlist *)
+
+
+Fixpoint reptyp' {CS:compspecs} (f : nat) (ty: type) {struct f} : option typ :=
+  match f with
+  | O => None
+  | S f' => 
+    match ty with
+    | Tvoid => Some tyunit
+    | Tint _ _ _ => Some tyval
+    | Tlong _ _ => Some tyval
+    | Tfloat _ _ => Some tyval
+    | Tpointer t1 a => Some tyval
+    | Tarray t1 sz a =>
+      match reptyp' f' t1 with
+      | None => None
+      | Some t => Some (tylist t)
+      end
+    | Tfunction t1 t2 _ => Some tyunit
+    | Tstruct id atr =>
+      let env := cenv_cs in
+      match PTree.get id env with
+      | None => None
+      | Some comp =>
+        (* should be a struct *)
+        match comp.(co_su) with
+        | Struct =>
+          let reptyp_structlist :=
+              fix reptyp_structlist (m : members) {struct m} : option typ :=
+                match m with
+                | nil => Some tyunit
+                | (_, ty) :: nil => reptyp' f' ty
+                | (_, ty) :: m' =>
+                  match reptyp' f' ty, reptyp_structlist m' with
+                  | Some t, Some ts =>
+                    Some (typrod t ts)
+                  | _, _ => None
+                  end
+                end
+          in
+          reptyp_structlist comp.(co_members)
+        | _ => None
+        end
+      end
+        
+    | Tunion id atr =>
+      let env := cenv_cs in
+      match PTree.get id env with
+      | None => None
+      | Some comp =>
+        (* should be a union *)
+        match comp.(co_su) with
+        | Union =>
+        let reptyp_unionlist := fix reptyp_unionlist (m : members) {struct m} : option typ :=
+               match m with
+               | nil => Some tyunit
+               | (_, ty) :: nil => reptyp' f' ty
+               | (_, ty) :: m' =>
+                 match reptyp' f' ty, reptyp_unionlist m' with
+                 | Some t, Some ts =>
+                   Some (tysum t ts)
+                 | _, _ => None
+                 end
+               end
+        in
+          reptyp_unionlist comp.(co_members)
+        | _ => None
+        end
+      end
+        (*  | Tcomp_ptr id a => tyval*)
+    end
   end.
- 
-Definition typeof_sep (s : sep) : typ :=
+
+(* Convenience wrapper: provides a limited amount of fuel *)
+Definition reptyp {CS:compspecs} (ty : type) : option typ :=
+  reptyp' 999 ty.
+(*  match reptyp' 999 ty with
+  | Some t => t
+  | None => tyunit
+  end. *)
+
+Require Import floyd.nested_field_lemmas.
+
+Definition typeof_sep {CS:compspecs} (s : sep) : option typ :=
 match s with
-| fdata_at t => tyArr tyshare (tyArr (reptyp t) (tyArr tyval tympred))
-| ffield_at t gfs => tyArr tyshare (tyArr (reptyp (nested_field_type2 t gfs)) (tyArr tyval tympred))
+| fdata_at t =>
+  match reptyp t with
+  | None => None
+  | Some t' => Some (tyArr tyshare (tyArr t' (tyArr tyval tympred)))
+  end
+| ffield_at t gfs =>
+  match reptyp (nested_field_type t gfs) with
+  | None => None
+  | Some t' => Some (tyArr tyshare (tyArr t' (tyArr tyval tympred)))
+  end
 (*| flseg t i l => tyArr tyshare (tyArr (tylist (reptyp_structlist (@all_but_link i (list_fields)))) 
                                       (tyArr tyval (tyArr tyval tympred)))*)
-| flocal => tyArr (tyArr tyenviron typrop) (tyArr tyenviron tympred) 
-| fprop => tyArr typrop tympred
-| fproj_val t => tyArr (tylist tygfield)
-                 (tyArr (reptyp t) tyval)
-| fupd_val t => tyArr (tylist tygfield)
-                 (tyArr (reptyp t)
-                  (tyArr tyval (reptyp t)))
+| flocal => Some (tyArr (tyArr tyenviron typrop) (tyArr tyenviron tympred))
+| fprop => Some (tyArr typrop tympred)
+| fproj_val t =>
+  match reptyp t with
+  | None => None
+  | Some t' => Some (tyArr (tylist tygfield) (tyArr t' tyval))
+  end
+| fupd_val t =>
+  match reptyp t with
+  | None => None
+  | Some t' => Some (tyArr (tylist tygfield) (tyArr t' (tyArr tyval t')))
+  end
 end.
 
 Definition proj1T {A} {B} (x: A /\ B) :=
@@ -394,18 +494,296 @@ Definition proj2T {A} {B} (x: A /\ B) :=
   | conj y z => z
   end.
 
-Definition typD_reptyp_reptype: forall t, typD  (reptyp t) = reptype t.
+Require Import type_induction.
+Require Import reptype_lemmas.
+
+(* TODO should these be defs or Lemmas *)
+Definition field_type_ok :
+  forall {CS:compspecs} id, 
+    Forall (fun x => Ctypes.field_type (fst x) (co_members (base.get_co id)) = Errors.OK (snd x)) (co_members (base.get_co id)).
+  intros.
+  generalize (base.get_co_members_no_replicate id); intro Hmnr.
+  induction (co_members (base.get_co id)).
+  - constructor.
+  - constructor.
+    + simpl. destruct a. simpl. 
+      unfold ident_eq; rewrite peq_true. reflexivity.
+    + simpl. destruct a.
+      (* i will never appear again in the list *)
+      rewrite members_no_replicate_ind in Hmnr. destruct Hmnr.
+      specialize (IHm H0).
+      unfold in_members in H.
+      apply Forall_forall.
+      intros.
+      rewrite Forall_forall  in IHm. specialize (IHm _ H1).
+      destruct (ident_eq (fst x) i).
+      * subst.
+        apply in_map with (f := fst) in H1. contradiction.
+      * auto.
+Defined.
+
+Definition co_members_strengthen :
+  forall {CS:compspecs} id P, Forall P (co_members (base.get_co id)) ->
+         Forall (fun x => Ctypes.field_type (fst x) (co_members (base.get_co id)) =
+                       Errors.OK (snd x) /\ P x) (co_members (base.get_co id)).
+Proof.
+  intros CS id.
+  generalize (field_type_ok id).
+  remember (co_members (base.get_co id)) as cm1.
+  remember (co_members (base.get_co id)) as cm2.
+  intros.
+  assert (cm1 = co_members (base.get_co id)) as Heqcm3.
+  { rewrite Heqcm1; rewrite Heqcm2; reflexivity. }
+
+  rewrite Heqcm1 in H at 1. rewrite Heqcm3 in H.
+  rewrite Heqcm1 at 1. rewrite Heqcm3.
+  rewrite Heqcm1 in H0.
+  clear Heqcm1 Heqcm2 Heqcm3.
+  induction cm2.
+  - constructor.
+  - intros.
+    inversion H; subst; clear H.
+    inversion H0; subst; clear H0.
+    constructor.
+    + split; assumption.
+    + specialize (IHcm2 H4 H5).
+      assumption.
+Defined.
+
+Lemma map_extensionality :
+  forall T U (f g : T -> U) ls,
+    Forall (fun x => f x = g x) ls ->
+    map f ls = map g ls.
+Proof.
+  induction 1; try reflexivity.
+  simpl.
+  f_equal; auto.
+Qed.
+
+(* alternate induction principle for lists, that makes it easier
+   to use with some functions such as compact_prod or compact_sum *)
+Lemma list_compact_ind :
+  forall {T} (P : list T -> Prop),
+    P nil ->
+    (forall (t : T), P (t :: nil)) ->
+    (forall t1 t2 l, P (t2 :: l) -> P (t1 :: t2 :: l)) ->
+    forall l, P l.
+  induction l.
+  - intros. assumption.
+  - destruct l; auto.
+Qed.
+
+(* simple forward reasoning tactic *)
+Ltac fwrd :=
+  match goal with
+  | H: match ?X with | _ => _ end = Some _ |- _ => let Hk := fresh "HH" in destruct X eqn:Hk; try congruence
+  end.
+
+(* for simplifying reptype_structlist *)
+Lemma reptype_structlist_eq :
+  forall {CS:compspecs} a b c,
+    members_no_replicate (a :: b :: c) = true ->
+    reptype_structlist (a :: b :: c) = prod (reptype (snd a)) (reptype_structlist (b :: c)).
+Proof.
+  intros. remember (b :: c).
+  unfold reptype_structlist at 1. simpl.
+  destruct a. simpl. rewrite peq_true. simpl.
+  match goal with
+  | |- context[map ?f ?l] => remember (map f l)
+  end.
+
+  rewrite Heql0 at 1. rewrite Heql at 1. simpl.
+  unfold reptype_structlist. clear Heql.
+  subst.
+
+  idtac.
+  erewrite map_extensionality.
+  reflexivity.
+  apply Forall_forall. intros.
+
+  eapply in_members_tail_no_replicate in H.
+  Focus 2.
+  unfold in_members. instantiate (1 := fst x).
+  apply List.in_map; assumption.
+
+  unfold ident_eq. rewrite peq_false; auto.
+Qed.
+
+Lemma reptype_unionlist_eq :
+  forall {CS:compspecs} a b c,
+    members_no_replicate (a :: b :: c) = true ->
+    reptype_unionlist (a :: b :: c) = sum (reptype (snd a)) (reptype_unionlist (b :: c)).
 Proof.
   intros.
-  apply (type_mut (fun t => typD (reptyp t) = reptype t)
-                  (fun tl => True)
-                  (fun fld => typD (reptyp_structlist fld) = reptype_structlist fld /\
-                              typD (reptyp_unionlist fld) = reptype_unionlist fld));
-  try reflexivity; intros.
-  + simpl.
-    rewrite H.
-    reflexivity.
-  + simpl.
+  remember (b :: c).
+  unfold reptype_unionlist at 1. simpl.
+  destruct a. simpl. rewrite peq_true. simpl.
+  match goal with
+  | |- context[map ?f ?l] => remember (map f l)
+  end.
+
+  rewrite Heql0 at 1. rewrite Heql at 1. simpl.
+  unfold reptype_structlist. clear Heql.
+  subst.
+
+  idtac.
+  erewrite map_extensionality.
+  reflexivity.
+  apply Forall_forall. intros.
+
+  eapply in_members_tail_no_replicate in H.
+  Focus 2.
+  unfold in_members. instantiate (1 := fst x).
+  apply List.in_map; assumption.
+
+  unfold ident_eq. rewrite peq_false; auto.
+Qed.
+
+
+Lemma members_no_replicate_tail :
+  forall h t, members_no_replicate (h :: t) = true ->
+         members_no_replicate t = true.
+Proof.
+  intros.
+  unfold members_no_replicate in H. simpl in H.
+  destruct (id_in_list (fst h) (map fst t)) eqn:Hidil;
+    try congruence.
+  rewrite <- H. reflexivity.
+Qed.
+
+Definition typD_reptyp_reptype: forall {CS:compspecs},
+    (*typD (reptyp t) = reptype_lemmas.reptype t.*)
+    forall t n t', reptyp' n t = Some t' ->
+            typD t' = reptype_lemmas.reptype t.
+Proof.
+  intros CS t.
+  (* we need to use the special induction principle *)
+  type_induction t; destruct n; simpl in *; try congruence;
+    try solve [inversion 1; subst; reflexivity].
+  - destruct (reptyp' n t) eqn:Hrt'; try congruence.
+    inversion 1; subst.
+    specialize (IH _ _ Hrt').
+    simpl. rewrite IH.
+    (* straight rewrite doesn't work *)
+    generalize (reptype_eq (Tarray t z a)); intro Hrte.
+    rewrite Hrte. reflexivity.
+  - apply co_members_strengthen in IH. eapply Forall_impl in IH.
+    Focus 2.
+    instantiate (1 := fun x => forall n t',
+                          (reptyp' n (snd x) = Some t' -> typD t' = reptype (snd x))).
+    clear. simpl; intros.
+    destruct H.
+    specialize (H1 n t'). rewrite H in H1. auto.
+
+    { intros.
+
+      destruct (cenv_cs ! id) eqn:Hcid; try congruence.
+      destruct (co_su c); try congruence.
+      rewrite reptype_eq. 
+
+      unfold base.get_co in *. rewrite Hcid in *.
+      revert H. revert IH. 
+
+      intros.
+      generalize (base.get_co_members_no_replicate id). intros.
+      unfold base.get_co in H0. rewrite Hcid in H0.
+      revert H. revert t'. revert IH.
+
+      (* we use our specialized induction principle, because of the
+         "compact prod" function *)
+      induction (co_members c) using list_compact_ind.
+      - intros. unfold reptype_structlist. inversion H; subst; simpl. reflexivity.
+      - intros. unfold reptype_structlist. simpl. destruct t. simpl. rewrite peq_true.
+        inversion IH; subst. simpl in H3. eauto.
+      - intros.
+
+        destruct t2.
+        destruct t1.
+
+        (* need a members-no-repl-tail function *)
+        generalize (members_no_replicate_tail _ _ H0); intro Hmnr.
+        specialize (IHm Hmnr).
+        inversion IH; subst; clear IH.
+        simpl fst in *. simpl snd in *.
+        rewrite reptype_structlist_eq by tauto.
+        simpl.
+
+        destruct (reptyp' n t0) eqn:Hrtt'; try congruence.
+        specialize (H3 _ _ Hrtt').
+        rewrite <- H3.
+        specialize (IHm H4).
+
+        fwrd.
+        specialize (IHm t2 eq_refl).
+        rewrite <- IHm.
+        inversion H. simpl. reflexivity. }
+    
+  - apply co_members_strengthen in IH.
+    eapply Forall_impl in IH.
+    Focus 2.
+    instantiate (1 := fun x => forall n t',
+                          (reptyp' n (snd x) = Some t' -> typD t' = reptype (snd x))).
+    clear. simpl; intros.
+    destruct H.
+    specialize (H1 n t'). rewrite H in H1. auto.
+
+    { intros.
+
+      destruct (cenv_cs ! id) eqn:Hcid; try congruence.
+      destruct (co_su c); try congruence.
+      rewrite reptype_eq. 
+
+      unfold base.get_co in *. rewrite Hcid in *.
+      revert H. revert IH. 
+
+      intros.
+      generalize (base.get_co_members_no_replicate id). intros.
+      unfold base.get_co in H0. rewrite Hcid in H0.
+      revert H. revert t'. revert IH.
+
+      (* we use our specialized induction principle, because of the
+         "compact prod" function *)
+      induction (co_members c) using list_compact_ind.
+      - intros. unfold reptype_unionlist. inversion H; subst; simpl. reflexivity.
+      - intros. unfold reptype_unionlist. simpl. destruct t. simpl. rewrite peq_true.
+        inversion IH; subst. simpl in H3. eauto.
+      - intros.
+
+        destruct t2.
+        destruct t1.
+
+        (* need a members-no-repl-tail function *)
+        generalize (members_no_replicate_tail _ _ H0); intro Hmnr.
+        specialize (IHm Hmnr).
+        inversion IH; subst; clear IH.
+        simpl fst in *. simpl snd in *.
+        rewrite reptype_unionlist_eq by tauto.
+        simpl.
+
+        destruct (reptyp' n t0) eqn:Hrtt'; try congruence.
+        specialize (H3 _ _ Hrtt').
+        rewrite <- H3.
+        specialize (IHm H4).
+
+        fwrd.
+        specialize (IHm t2 eq_refl).
+        rewrite <- IHm.
+        inversion H. simpl. reflexivity. }
+
+Defined.
+
+(* old proof *)
+(*
+  apply (type_mut (fun t => forall t', reptyp' n t = Some t' -> typD t' = reptype t)
+                  (fun tl => True)); try reflexivity; intros;
+    try (solve [inversion H; simpl; reflexivity |
+                inversion H0; simpl; reflexivity]).
+  + unfolds in H0. unfold reptyp in H0.
+    unfold reptyp' in H0.
+
+    unfold reptype, reptype_gen. simpl.
+     unfold type_induction.type_func_rec. simpl.
+  + inversion H. simpl. reflexivity.
     apply (proj1T H).
   + simpl.
     apply (proj2T H).
@@ -414,21 +792,27 @@ Proof.
     - destruct (is_Fnil f); simpl; rewrite H; try rewrite (proj1T H0); reflexivity.
     - destruct (is_Fnil f); simpl; rewrite H; try rewrite (proj2T H0); reflexivity.
 Defined.
+ *)
 
-Definition reptyp_reptype ty (v: typD  (reptyp ty)): reptype ty :=
-  eq_rect_r (fun x => x) v (eq_sym (typD_reptyp_reptype ty)).
+(* lots of parameters... *)
+Definition reptyp_reptype {CS:compspecs} (ty : type) (ty' : typ) (n : nat)
+           (H : reptyp' n ty = Some ty') (v: typD ty'): reptype ty :=
+  eq_rect_r (fun x => x) v (eq_sym (typD_reptyp_reptype ty n ty' H)).
 
-Definition reptype_reptyp ty (v: reptype ty): typD  (reptyp ty) :=
-  eq_rect_r (fun x => x) v (typD_reptyp_reptype ty).
+Definition reptype_reptyp {CS:compspecs} (ty : type) (ty' : typ) (n : nat)
+           (H : reptyp' n ty = Some ty') (v : reptype ty) : typD ty' :=
+  eq_rect_r (fun x => x) v (typD_reptyp_reptype ty n ty' H).
 
-Lemma reptyp_reptype_reptype_reptyp: forall t v, reptyp_reptype t (reptype_reptyp t v) = v.
+Lemma reptyp_reptype_reptype_reptyp: forall {CS:compspecs} ty ty' n v
+                                       (H : reptyp' n ty = Some ty'),
+    reptyp_reptype ty ty' n H (reptype_reptyp ty ty' n H v) = v.
 Proof.
   intros.
-  unfold reptyp_reptype, reptype_reptyp.
-  unfold eq_rect_r.
-  generalize (typD_reptyp_reptype t).
+  unfold reptype_reptyp, reptyp_reptype, eq_rect_r.
+  Check typD_reptyp_reptype.
+  generalize (typD_reptyp_reptype ty n ty' H).
   revert v.
-  rewrite (typD_reptyp_reptype t).
+  rewrite (typD_reptyp_reptype ty n ty' H).
   intros.
   rewrite <- !eq_rect_eq.
   reflexivity.
@@ -582,8 +966,71 @@ Proof.
       rewrite (proj2 H0).
       reflexivity.
 Qed.
-*)
-Definition sepD  (s : sep) : typD  (typeof_sep s).
+ *)
+
+Print typeof_sep.
+Print sep.
+
+(* TODO: this definitio might not be efficient enough. *)
+Print reptype_gen.
+Print type_func.
+Print rank_type.
+Print composite.
+Print composite_env.
+Print compspecs.
+Print composite_consistent.
+(* TODO: do we want to give an "n-levels unrolling" approximation?? *)
+(* we need to do what their reptyp function does *)
+Print type_func_rec.
+Print type.
+Check reptype.
+Check reptype_eq.
+Print reptype_gen.
+Definition sepD {CS:compspecs} (s : sep) (t : typ) (H : typeof_sep s = Some t) : typD t.
+  destruct s.
+  { simpl in H. inversion H; subst. simpl.
+    exact local. }
+  { simpl in H. inversion H; subst; clear H. simpl. exact prop. }
+  { simpl in H. destruct (reptyp t0) eqn:Hrt0; try congruence.
+    inversion H; subst; clear H. simpl.
+    intros sh rt v.
+    unfold reptyp in Hrt0.
+    generalize (reptyp_reptype _ _ _ Hrt0 rt); intros.
+    generalize (data_at sh t0).
+    intro da.
+    exact (da X v). }
+  { simpl in H. destruct (reptyp (nested_field_type t0 l)) eqn:Hrt0; try congruence.
+    inversion H; subst. simpl.
+    intros sh rt v. unfold reptyp in Hrt0.
+    generalize (reptyp_reptype _ _ _ Hrt0 rt); intros.
+    generalize (field_at sh t0). intro Hfa. specialize (Hfa l).
+    exact (Hfa X v).
+  }
+  {
+    simpl in H. destruct (reptyp t0) eqn:Hrt0; try congruence.
+    inversion H; subst. simpl.
+    intros gfs rt.
+    unfold reptyp in Hrt0.
+    generalize (reptyp_reptype _ _ _ Hrt0 rt). intros.
+    generalize (proj_val t0 gfs).
+    intro Hpv. exact (Hpv X).
+  }
+  {
+    simpl in H. destruct (reptyp t0) eqn:Hrt0; try congruence.
+    inversion H; subst. simpl.
+    intros gfs rt v.
+    unfold reptyp in Hrt0.
+    generalize (reptyp_reptype _ _ _ Hrt0 rt). intro Htype.
+    generalize (upd_val t0 gfs Htype v). clear Htype. intro Hupd.
+    Check reptype_reptyp.
+    generalize (reptype_reptyp _ _ _ Hrt0 Hupd). intro Htyp.
+    exact Htyp.
+  }
+Defined.
+  
+  
+(* old def *)
+(*
 refine
 match s with
 | flocal => (local : typD (typeof_sep flocal))
@@ -606,6 +1053,7 @@ end.
   intros sh lf v1 v2.
   exact (@lseg t id ls sh (List.map (reptyp_structlist_reptype  _) lf) v1 v2). }*)
 Defined.
+*)
 
 Inductive smx :=
 | fenviron : environ -> smx
@@ -786,4 +1234,5 @@ match f with
 | Data l => dataD l
 | Smx t => smxD t
 end.
+
 

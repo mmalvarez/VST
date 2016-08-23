@@ -103,8 +103,13 @@ Admitted.
     right.
     apply H1.
 Qed.
-*)
+ *)
 
+(* we think we can just use floyd/local2ptree.v
+  instead of this. *)
+(* we need to make sure it has all the necessary
+   soundnes statements however. *)
+(*
 Lemma local2list_soundness: forall P Q R T1 T2 Q',
   local2list Q T1 T2 Q' ->
   PROPx P (LOCALx Q (SEPx R)) = PROPx P (LOCALx (LocallistD T1 T2 Q') (SEPx R)).
@@ -136,6 +141,7 @@ Proof.
   + auto.
   + rewrite <- insert_local. 
 Admitted.
+*)
 
 Fixpoint locallist2ptree {A : Type} (l : list (ident * A)) (p : PTree.t A) (e : list Prop) : ((PTree.t A) * (list Prop)) :=
 match l with

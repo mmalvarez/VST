@@ -120,21 +120,30 @@ Fixpoint tc_efield_b_norho {CS:compspecs} Delta efs :=
   | eUnionField _ :: efs' => tc_efield_b_norho Delta efs'
   end.
 
+(* there is a problem with typeclass resolution?
+   so we have to put in app_pred manually?
+   %pred vs. %logic
+   pred is used in lower-level soundness proofs *)
+
+Lemma pure_app_pred : forall (P : Prop) 
+                     (m : compcert_rmaps.RML.R.rmap), app_pred (!!P)%logic m <-> P.
+Proof.
+  reflexivity.
+Qed.
+
 Lemma tc_efield_b_sound: forall {CS:compspecs} efs Delta rho m,
   tc_efield_b_norho Delta efs = true -> app_pred (tc_efield Delta efs rho) m.
 Proof.
   intros.
   induction efs.
-  + simpl; auto. admit.
+  + simpl; auto. rewrite pure_app_pred; auto.
   + destruct a; simpl in H |- *.
-    - apply andb_true_iff in H.
-      destruct H. admit.
-      (*
-      apply tc_expr_b_sound with (rho := rho) in H.
-      tauto. *)
-    - tauto.
-    - tauto.
-Admitted.
+  - apply andb_true_iff in H.
+    destruct H. specialize (IHefs H0).
+    split; [apply tc_expr_b_sound|]; auto.
+  - tauto.
+  - tauto.
+Qed.
 
 Definition tc_LR_b_norho {CS:compspecs} Delta e lr :=
   match lr with
