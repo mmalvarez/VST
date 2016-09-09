@@ -54,10 +54,12 @@ Inductive typ :=
 | tyfunspec
 | tyefield
 (*| tytype_id_env*)
-(*| tyllrr*)
+| tyllrr
+| tyvardesc
+| tylocaldef (* TODO do we need more? *)
 (*| tyother : positive -> typ*)
 .
-
+Locate vardesc.
 Fixpoint typD (t : typ) (*(m : PositiveMap.t Type)*): Type :=
     match t with
         | tyArr a b => typD a  -> typD b 
@@ -104,8 +106,10 @@ Fixpoint typD (t : typ) (*(m : PositiveMap.t Type)*): Type :=
         | tygfield => gfield
         | tyfunspec => funspec
         | tyefield => efield
-(*        | tytype_id_env => type_id_env *)
-(*        | tyllrr => LLRR*)
+        (*| tytype_id_env => type_id_env.type_id_env *)
+        | tyllrr => client_lemmas.LLRR
+        | tyvardesc => local2ptree.vardesc
+        | tylocaldef => canon.localdef
     end.
 (*
 Lemma listspec_ext : forall t i (a b: listspec t i), a = b.
